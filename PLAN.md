@@ -26,8 +26,8 @@
   - Pendiente cuando haya hardware: confirmar sentido de giro del motor (IN1/IN2), centrar el servo físicamente (puede no coincidir con 90° según el brazo), y verificar que el watchdog sí corta la corriente al motor.
 
 ## Pendiente de tu lado
-1. Confirmar/comprar hardware faltante (lista de compras abajo).
-2. Cuando tengas fuente + L298N + multímetro: avisar para hacer la prueba física de Fase 2 (wiring según `firmware/src/drive.h`).
+1. Pedir los componentes de la lista de compras cerrada (sección 3).
+2. Cuando lleguen: avisar para hacer la prueba física de Fase 2 (wiring según `firmware/src/drive.h`).
 
 ---
 
@@ -62,18 +62,19 @@ Celular Android:
 - **Android y redes sin internet**: Android (incluido Android 16) tiende a desconectar o enrutar tráfico por datos móviles cuando detecta que el WiFi conectado no tiene internet. Hay que manejar esto en la app con `ConnectivityManager` pidiendo explícitamente la red WiFi sin capacidad de internet (`NetworkRequest` + `bindProcessToNetwork`), si no los comandos pueden fallar de forma intermitente.
 - **Watchdog de seguridad**: si el celular sale de rango o se cae la conexión, el motor debe detenerse solo. El firmware debe parar el motor si no recibe un comando nuevo en, por ejemplo, 500 ms.
 
-## 3. Lista de compras (lo que falta)
+## 3. Lista de compras (cerrada, lista para pedir)
 
-| Ítem | Recomendación | Motivo |
-|---|---|---|
-| Driver H-bridge | **L298N** (módulo con disipador) | Barato, fácil de conseguir, tolerante a errores de cableado — ideal para MVP. Alternativa más eficiente: TB6612FNG. |
-| Batería | **LiPo 2S 7.4V, 1300-2200mAh** con conector XT60/JST + cargador balanceador | Estándar en chasis RC, encaja en el rango 6-12V del motor. Alternativa más segura/simple de cargar: pack de 2x18650 con protección. |
-| Buck converter | Módulo step-down 5V, mínimo 3A (ej. LM2596 o MP1584) | Alimenta ESP32-CAM + servo separado del motor, evita brownouts. |
-| Capacitor electrolítico | 470-1000 µF, ≥16V | Amortigua picos de corriente del servo. |
-| Interruptor on/off | Cualquiera, para el paquete de batería | Evita desconectar cables para apagar. |
-| Cables Dupont + protoboard pequeña o perfboard | — | Cableado entre módulos. |
+| # | Ítem | Recomendación | Cant. | Motivo |
+|---|---|---|---|---|
+| 1 | Driver H-bridge | **L298N** (módulo con disipador) | 1 | Barato, fácil de conseguir, tolerante a errores de cableado — ideal para MVP. Alternativa más eficiente: TB6612FNG. |
+| 2 | Batería | **LiPo 2S 7.4V, 1300-2200mAh** con conector XT60/JST + cargador balanceador | 1 | Estándar en chasis RC, encaja en el rango 6-12V del motor. Alternativa más segura/simple de cargar: pack de 2x18650 con protección. |
+| 3 | Buck converter | Módulo step-down 5V, mínimo 3A (ej. LM2596 o MP1584) | 1 | Alimenta ESP32-CAM + servo separado del motor, evita brownouts. |
+| 4 | Capacitor electrolítico | 470-1000 µF, ≥16V | 2 | Amortigua picos de corriente del servo (uno de repuesto — son baratos). |
+| 5 | Interruptor on/off | Cualquiera, para el paquete de batería | 1 | Evita desconectar cables para apagar. |
+| 6 | Cables Dupont (M-M, M-H, H-H) + protoboard pequeña o perfboard | — | 1 set | Cableado entre módulos. |
+| 7 | Fuente de banco ajustable | 0-30V, mínimo 3A, con **límite de corriente ajustable** | 1 | Para probar motor/servo/L298N sin arriesgar el LiPo — si hay un error de cableado, el límite de corriente evita quemar componentes. El límite de corriente es la característica clave, no solo el rango de voltaje. |
 
-Ya tienes: chasis 4WD, servo MG996R, motor DC, ESP32-CAM, adaptador CH340, celular Android.
+Ya tienes: chasis 4WD, servo MG996R, motor DC, ESP32-CAM, adaptador CH340, celular Android, multímetro.
 
 ## 4. Fases del desarrollo
 
