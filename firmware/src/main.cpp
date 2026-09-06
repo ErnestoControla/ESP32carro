@@ -7,9 +7,16 @@
 #include <esp_camera.h>
 #include <esp_http_server.h>
 #include "camera_pins.h"
+#include "drive.h"
 
 static const char *AP_SSID = "ESP32CAR";
 static const char *AP_PASSWORD = "carro1234"; // min. 8 caracteres para WPA2
+
+// Si no llega un /control nuevo en este tiempo, se detiene el motor.
+// El servo se queda en su ultima posicion (no es peligroso que no se mueva).
+static const uint32_t COMMAND_TIMEOUT_MS = 500;
+static volatile uint32_t last_command_ms = 0;
+static volatile bool motor_running = false;
 
 static httpd_handle_t stream_httpd = nullptr;
 static httpd_handle_t index_httpd = nullptr;
@@ -72,6 +79,40 @@ static esp_err_t stream_handler(httpd_req_t *req) {
     return res;
 }
 
+// GET /control?steer=<0-180>&throttle=<-255..255>
+// Se exige mandar ambos parametros en cada llamada: asi no hay que
+// recordar estado entre requests y el watchdog solo necesita vigilar
+// "cuando fue el ultimo /control", sin importar que contenia.
+static esp_err_t control_handler(httpd_req_t *req) {
+    char query[64];
+    char val[16];
+
+    if (httpd_req_get_url_query_str(req, query, sizeof(query)) != ESP_OK ||
+        httpd_query_key_value(query, "steer", val, sizeof(val)) != ESP_OK) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        return httpd_resp_send(req, "Falta el parametro steer", HTTPD_RESP_USE_STRLEN);
+    }
+    int steer = constrain(atoi(val), 0, 180);
+
+    if (httpd_query_key_value(query, "throttle", val, sizeof(val)) != ESP_OK) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        return httpd_resp_send(req, "Falta el parametro throttle", HTTPD_RESP_USE_STRLEN);
+    }
+    int throttle = constrain(atoi(val), -255, 255);
+
+    drive_set_steering(steer);
+    drive_set_throttle(throttle);
+    motor_running = (throttle != 0);
+    last_command_ms = millis();
+
+    Serial.printf("[control] steer=%d throttle=%d\n", steer, throttle);
+
+    char resp[48];
+    int len = snprintf(resp, sizeof(resp), "OK steer=%d throttle=%d\n", steer, throttle);
+    httpd_resp_set_type(req, "text/plain");
+    return httpd_resp_send(req, resp, len);
+}
+
 static void start_camera_server() {
     httpd_config_t index_config = HTTPD_DEFAULT_CONFIG();
     index_config.server_port = 80;
@@ -84,8 +125,16 @@ static void start_camera_server() {
         .user_ctx = nullptr,
     };
 
+    httpd_uri_t control_uri = {
+        .uri = "/control",
+        .method = HTTP_GET,
+        .handler = control_handler,
+        .user_ctx = nullptr,
+    };
+
     if (httpd_start(&index_httpd, &index_config) == ESP_OK) {
         httpd_register_uri_handler(index_httpd, &index_uri);
+        httpd_register_uri_handler(index_httpd, &control_uri);
     }
 
     httpd_config_t stream_config = HTTPD_DEFAULT_CONFIG();
@@ -173,6 +222,10 @@ void setup() {
         return;
     }
 
+    drive_init();
+    drive_set_steering(SERVO_CENTER_DEG);
+    drive_stop();
+
     WiFi.mode(WIFI_AP);
     WiFi.softAP(AP_SSID, AP_PASSWORD);
     // El ahorro de energia (modem sleep) del WiFi introduce pausas
@@ -188,5 +241,10 @@ void setup() {
 }
 
 void loop() {
-    delay(1000);
+    if (motor_running && millis() - last_command_ms > COMMAND_TIMEOUT_MS) {
+        drive_stop();
+        motor_running = false;
+        Serial.println("[watchdog] sin comandos recientes, motor detenido");
+    }
+    delay(50);
 }

@@ -19,9 +19,15 @@
   - AP propio `ESP32CAR` (contraseña `carro1234`) sirviendo `http://192.168.4.1/` (página) y stream MJPEG en el puerto 81.
   - Tres bugs de hardware/software resueltos — ver detalle en `docs/notas-tecnicas.md`.
   - Resolución final: **QVGA (320x240)**, calidad JPEG 12, ~25 fps estables. Se prefirió sobre VGA porque el cuello de botella es el envío por WiFi, no la cámara, y para controlar el carro importa más la latencia que el detalle de imagen.
+- **Fase 2 — Firmware: control de motor y servo**: lógica implementada y validada por HTTP; **falta la prueba física** (sin fuente/driver/multímetro todavía).
+  - Endpoint `GET /control?steer=<0-180>&throttle=<-255..255>` en el puerto 80.
+  - Validado manualmente desde el navegador del celular: valores dentro de rango se aplican tal cual, fuera de rango se recortan (ej. `steer=999` → `180`), y falta un parámetro responde 400 con mensaje claro.
+  - Watchdog implementado (detiene el motor si no llega un `/control` nuevo en 500ms) — no probado aún con motor real conectado.
+  - Pendiente cuando haya hardware: confirmar sentido de giro del motor (IN1/IN2), centrar el servo físicamente (puede no coincidir con 90° según el brazo), y verificar que el watchdog sí corta la corriente al motor.
 
 ## Pendiente de tu lado
 1. Confirmar/comprar hardware faltante (lista de compras abajo).
+2. Cuando tengas fuente + L298N + multímetro: avisar para hacer la prueba física de Fase 2 (wiring según `firmware/src/drive.h`).
 
 ---
 
@@ -49,7 +55,7 @@ Celular Android:
 
 ## 2. Riesgos técnicos a tener en cuenta (importante)
 
-- **Pines libres limitados**: el ESP32-CAM (AI-Thinker) usa casi todos los GPIO para la cámara. Los libres típicos son 12, 13, 14, 15, 2, 4, 16. El **GPIO12** es un pin de "strapping": si algo lo fuerza a HIGH durante el arranque, el ESP32 puede no bootear — hay que evitar conectarle algo que lo jale alto al encender.
+- **Pines libres limitados**: el ESP32-CAM (AI-Thinker) usa casi todos los GPIO para la cámara. Los libres reales son **2, 4, 12, 13, 14, 15** (corrección: GPIO16 NO está libre en este módulo — está conectado a la PSRAM externa, confirmado por los build flags del board `esp32cam`; usarlo como GPIO corrompería la PSRAM). El **GPIO12** es un pin de "strapping": si algo lo fuerza a HIGH durante el arranque, el ESP32 puede no bootear — hay que evitar conectarle algo que lo jale alto al encender, así que se dejó sin usar. Asignación actual (ver `firmware/src/drive.h`): GPIO13 = servo, GPIO14/15 = dirección motor (L298N IN1/IN2), GPIO2 = PWM velocidad (L298N ENA).
 - **Brownouts por el servo**: el MG996R puede pedir picos de hasta ~2A al moverse. Si comparte regulador con el ESP32-CAM, causa caídas de voltaje que resetean la cámara/WiFi a media operación. Por eso el servo y el ESP32-CAM deben alimentarse desde un buck de al menos 3A, con un capacitor grande cerca del servo.
 - **Tierra común obligatoria**: batería, driver, servo y ESP32-CAM deben compartir GND.
 - **Flasheo del ESP32-CAM**: no tiene USB propio (por eso usas el adaptador CH340). Para subir código hay que puentear GPIO0 a GND antes de resetear/alimentar, y quitar el puente para ejecutar normal. Es el paso que más se olvida y da más dolores de cabeza.
