@@ -24,15 +24,17 @@
   - Validado manualmente desde el navegador del celular: valores dentro de rango se aplican tal cual, fuera de rango se recortan (ej. `steer=999` → `180`), y falta un parámetro responde 400 con mensaje claro.
   - Watchdog implementado (detiene el motor si no llega un `/control` nuevo en 500ms) — no probado aún con motor real conectado.
   - Pendiente cuando haya hardware: confirmar sentido de giro del motor (IN1/IN2), centrar el servo físicamente (puede no coincidir con 90° según el brazo), y verificar que el watchdog sí corta la corriente al motor.
-- **Fase 3 — App Android v0**: adelantada mientras llega el hardware de Fase 2; **validada end-to-end** en un Galaxy A06 (Android 16).
+- **Fase 3 — App Android v0**: adelantada mientras llega el hardware de Fase 2.
   - Proyecto Kotlin + Jetpack Compose en `android-app/`, compilable por CLI con `./gradlew` (Gradle 9.7.1, AGP 9.4.0 — Android Studio ya no necesita el plugin `kotlin-android` por separado desde AGP 9).
-  - `MainActivity`: WebView con el stream, sliders de dirección/velocidad enviando `/control` cada 150ms (ese ritmo constante evita que se dispare el watchdog de 500ms del firmware), velocidad vuelve a 0 al soltar el slider (seguridad tipo "hombre muerto").
-  - Bug encontrado y corregido: `NET_CAPABILITY_INTERNET` NO sirve para detectar "esta es la red sin internet del carro" — Android la marca en casi cualquier WiFi por defecto (es declarativa, no confirmada; la señal real sería `NET_CAPABILITY_VALIDATED`). Se simplificó: la app bindea a cualquier WiFi activa, ya que no tiene otro uso — si es la red equivocada, las peticiones HTTP simplemente fallan por timeout.
-  - Confirmado por log serial del ESP32 que los comandos `/control` llegan de forma continua desde la app.
+  - **Funcionando y confirmado**: conexión a la red del carro, layout horizontal (video arriba al centro, palancas analógicas de Dirección/Velocidad a los lados con resorte al centro), envío de `/control` cada 150ms (confirmado llegando al firmware por log serial), watchdog de seguridad.
+  - **Sin confirmar al cierre de esta sesión**: el video en el `WebView`. Se vio funcionando en la primerísima prueba (antes de tocar nada de redes), pero durante la depuración de un bug posterior no se pudo re-confirmar porque el ESP32 dejó de responder tras una sesión muy larga (ver `docs/notas-tecnicas.md`, secciones 4 y 5). El código quedó en la versión más simple (`WebView` normal sin trucos), que es la que sí funcionó la primera vez.
+  - **Primer paso de la próxima sesión**: con el ESP32 descansado, confirmar visualmente que el video se ve en la app.
+  - Bug de conectividad corregido: `NET_CAPABILITY_INTERNET` NO sirve para detectar "esta es la red sin internet del carro" — Android la marca en casi cualquier WiFi por defecto. La app bindea a cualquier WiFi activa, ya que no tiene otro uso.
 
 ## Pendiente de tu lado
 1. Pedir los componentes de la lista de compras cerrada (sección 3).
-2. Cuando lleguen: avisar para hacer la prueba física de Fase 2 (wiring según `firmware/src/drive.h`) — con eso Fase 3 también queda con prueba física completa (mover el carro de verdad viendo el video).
+2. Al iniciar la próxima sesión: confirmar que el video se vea en la app (con el ESP32 ya descansado).
+3. Cuando lleguen los componentes: avisar para hacer la prueba física de Fase 2 (wiring según `firmware/src/drive.h`).
 
 ---
 

@@ -42,16 +42,25 @@ static const char *STREAM_BOUNDARY = "\r\n--" PART_BOUNDARY "\r\n";
 static const char *STREAM_PART = "Content-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n";
 
 static esp_err_t stream_handler(httpd_req_t *req) {
+    Serial.println("[stream] cliente conectado, handler iniciado");
     camera_fb_t *fb = nullptr;
     esp_err_t res = httpd_resp_set_type(req, STREAM_CONTENT_TYPE);
     if (res != ESP_OK) {
+        Serial.printf("[stream] httpd_resp_set_type fallo: 0x%x\n", res);
         return res;
     }
 
     char part_buf[64];
+    uint32_t frame_n = 0;
 
     while (true) {
+        uint32_t t0 = millis();
         fb = esp_camera_fb_get();
+        uint32_t dt = millis() - t0;
+        frame_n++;
+        if (dt > 200) {
+            Serial.printf("[stream] fb_get #%u tardo %ums\n", frame_n, dt);
+        }
         if (!fb) {
             Serial.println("Fallo al capturar frame");
             res = ESP_FAIL;
@@ -73,6 +82,7 @@ static esp_err_t stream_handler(httpd_req_t *req) {
             }
         }
         if (res != ESP_OK) {
+            Serial.printf("[stream] saliendo del handler en frame #%u, res=0x%x\n", frame_n, res);
             break;
         }
     }
@@ -208,6 +218,20 @@ static bool init_camera() {
         Serial.printf("Fallo al iniciar la camara: 0x%x\n", err);
         return false;
     }
+
+    // Ajuste post-init recomendado por el ejemplo oficial CameraWebServer
+    // de Espressif para el sensor OV3660 (el que trae este modulo). No
+    // arregla el problema de frames JPEG con estructura no estandar que
+    // documentamos en docs/notas-tecnicas.md (confirmado con y sin este
+    // bloque, los bytes salen identicos) — se deja de todas formas porque
+    // es la calibracion recomendada para este sensor especifico.
+    sensor_t *sensor = esp_camera_sensor_get();
+    if (sensor->id.PID == OV3660_PID) {
+        sensor->set_vflip(sensor, 1);
+        sensor->set_brightness(sensor, 1);
+        sensor->set_saturation(sensor, -2);
+    }
+
     return true;
 }
 
