@@ -40,6 +40,21 @@ El cuello de botella era el envío por WiFi (frames VGA de ~18KB), no la captura
 
 **Lección**: para control en vivo, la latencia importa más que la resolución. Si en el futuro se necesita más detalle de imagen, hay que evaluarlo contra el presupuesto real de throughput del AP (medido, no asumido) — no subir la resolución a ciegas.
 
+## 4. App Android: WebView no muestra el stream MJPEG
+
+**Síntoma**: el `WebView` embebido en la app mostraba un recuadro negro; el navegador Chrome normal del celular sí mostraba el stream. El `WebViewClient.onReceivedError` reportaba `net::ERR_EMPTY_RESPONSE` para `http://192.168.4.1:81/stream`.
+
+**Causa real (dos problemas apilados)**:
+1. Android no permite que apps sin *bind* explícito (Chrome normal, y el proceso separado que usa `WebView` internamente) enruten tráfico por una red WiFi sin "internet validado", aunque la tabla de rutas del sistema se vea correcta. `ConnectivityManager.bindProcessToNetwork()` solo afecta al proceso que lo llama — el renderer/red de `WebView` corre en un **proceso separado** y no hereda ese bind. Por eso las llamadas `/control` (hechas con `HttpURLConnection` dentro del proceso de la app) funcionaban, pero el `WebView` no.
+2. Durante la depuración, el celular se reconectó solo a la red de casa (WiFi conocida) en algún momento y nunca fue evidente porque la app seguía mostrando "Conectado" — el bug real terminó siendo simplemente que el celular no estaba en `ESP32CAR`. Se confirmó viendo el log de `sendControl`, que mostraba la IP de origen real de la conexión fallida (`192.168.100.x`, la red de casa, no `192.168.4.x`).
+
+**Fix**: se eliminó el `WebView` y se reemplazó por un decodificador MJPEG propio (`streamMjpeg` en `MainActivity.kt`) que:
+- Usa `network.openConnection(url)` (el objeto `Network` específico, no la conexión "por defecto" del proceso) para cada request — más robusto que `bindProcessToNetwork`, porque ata la petición a una red concreta sin depender de qué proceso la ejecute.
+- Parsea a mano el `multipart/x-mixed-replace` leyendo el header `Content-Length` de cada parte (evita tener que buscar el boundary byte a byte).
+- Decodifica cada JPEG con `BitmapFactory` y lo muestra en un `Image` de Compose.
+
+**Lección para depurar esto en el futuro**: cuando algo falla "porque la red está mal", verificar primero, con evidencia (no suposición), la IP de origen real de la conexión que falla — ahí se ve inmediato si el celular está en la red equivocada.
+
 ## Nota adicional: reset del ESP32 al abrir el puerto serial
 
 La base de programación (ESP32-CAM-MB, con CH340) resetea el chip cada vez que se abre el puerto serial desde una PC (circuito de auto-programación en RTS/DTR). Esto mata cualquier conexión activa del celular al stream. Al depurar por serial, hay que recargar la página en el celular después de abrir el monitor serial, no antes.
