@@ -6,6 +6,7 @@
 #include <WiFi.h>
 #include <esp_camera.h>
 #include <esp_http_server.h>
+#include <lwip/sockets.h>
 #include "camera_pins.h"
 #include "drive.h"
 
@@ -21,12 +22,42 @@ static volatile bool motor_running = false;
 static httpd_handle_t stream_httpd = nullptr;
 static httpd_handle_t index_httpd = nullptr;
 
+// Contadores de diagnostico expuestos por /status. Existen para poder
+// investigar fallas intermitentes de /stream sin depender del monitor
+// serial: el adaptador CH340 de esta placa resetea el ESP32 cada vez que
+// se abre el puerto serial desde esta PC (ver notas-tecnicas.md), asi que
+// leer el log serial destruye el estado que se queria observar. Por HTTP
+// se puede consultar sin tocar la placa para nada.
+static volatile uint32_t diag_stream_attempts = 0;
+static volatile uint32_t diag_stream_fb_fail = 0;
+static volatile uint32_t diag_stream_frames_sent = 0;
+static volatile uint32_t diag_last_fb_get_ms = 0;
+static volatile uint32_t diag_max_fb_get_ms = 0;
+
 static const char INDEX_HTML[] = R"HTML(
 <!DOCTYPE html>
 <html>
-<head><meta charset="utf-8"><title>ESP32 Carro</title></head>
-<body style="margin:0;background:#111;display:flex;justify-content:center;align-items:center;height:100vh;">
-  <img src="http://192.168.4.1:81/stream" style="max-width:100%;max-height:100%;" />
+<head><meta charset="utf-8"><title>ESP32 Carro</title>
+<style>
+  /* El <img> necesita un tamaño resuelto ANTES de tener datos: con solo
+     max-width/max-height (dependiente del tamaño intrinseco de la imagen)
+     algunos WebView de Android nunca recalculan el layout cuando el
+     recurso multipart/x-mixed-replace "cambia" de contenido, y el <img>
+     queda con clientWidth/clientHeight en 0 para siempre aunque
+     naturalWidth/naturalHeight sean correctos (confirmado con Chrome
+     DevTools remoto, ver docs/notas-tecnicas.md). Fix: que el tamaño del
+     <img> dependa del contenedor (width/height:100%), no de si misma. */
+  /* position:fixed dimensiona contra el viewport directamente (el
+     "initial containing block"), sin depender de que html/body resuelvan
+     bien height:100% en cascada -- eso fue lo que fallaba: bodyClientHeight
+     quedaba en 0 en este WebView aunque html.clientHeight si reportaba el
+     alto real del viewport (confirmado con Chrome DevTools remoto). */
+  html, body { margin:0; padding:0; background:#111; }
+  img { position:fixed; top:0; left:0; width:100%; height:100%; object-fit:contain; }
+</style>
+</head>
+<body>
+  <img src="http://192.168.4.1:81/stream" />
 </body>
 </html>
 )HTML";
@@ -41,8 +72,28 @@ static const char *STREAM_CONTENT_TYPE = "multipart/x-mixed-replace;boundary=" P
 static const char *STREAM_BOUNDARY = "\r\n--" PART_BOUNDARY "\r\n";
 static const char *STREAM_PART = "Content-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n";
 
+// El servidor de streaming solo procesa un cliente a la vez (un unico task
+// bloqueado en el while(true) de este handler). Si un cliente se cae sin
+// cerrar prolijamente la conexion TCP (ej. corte breve de WiFi, celular
+// bloqueado), el socket queda "vivo" del lado del ESP32 y bloquea a
+// cualquier cliente nuevo para siempre, sin ningun error visible, hasta
+// reiniciar el ESP32 a mano. Fix: timeout de envio en el socket para que un
+// cliente muerto se detecte y libere solo.
+static const int STREAM_SOCKET_TIMEOUT_SEC = 3;
+
 static esp_err_t stream_handler(httpd_req_t *req) {
     Serial.println("[stream] cliente conectado, handler iniciado");
+    diag_stream_attempts++;
+
+    int sockfd = httpd_req_to_sockfd(req);
+    if (sockfd >= 0) {
+        struct timeval tv;
+        tv.tv_sec = STREAM_SOCKET_TIMEOUT_SEC;
+        tv.tv_usec = 0;
+        setsockopt(sockfd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+        setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    }
+
     camera_fb_t *fb = nullptr;
     esp_err_t res = httpd_resp_set_type(req, STREAM_CONTENT_TYPE);
     if (res != ESP_OK) {
@@ -58,11 +109,14 @@ static esp_err_t stream_handler(httpd_req_t *req) {
         fb = esp_camera_fb_get();
         uint32_t dt = millis() - t0;
         frame_n++;
+        diag_last_fb_get_ms = dt;
+        if (dt > diag_max_fb_get_ms) diag_max_fb_get_ms = dt;
         if (dt > 200) {
             Serial.printf("[stream] fb_get #%u tardo %ums\n", frame_n, dt);
         }
         if (!fb) {
             Serial.println("Fallo al capturar frame");
+            diag_stream_fb_fail++;
             res = ESP_FAIL;
         } else {
             if (fb->format != PIXFORMAT_JPEG) {
@@ -78,6 +132,7 @@ static esp_err_t stream_handler(httpd_req_t *req) {
                 if (res == ESP_OK) {
                     res = httpd_resp_send_chunk(req, (const char *)fb->buf, fb->len);
                 }
+                if (res == ESP_OK) diag_stream_frames_sent++;
                 esp_camera_fb_return(fb);
             }
         }
@@ -87,6 +142,55 @@ static esp_err_t stream_handler(httpd_req_t *req) {
         }
     }
     return res;
+}
+
+// GET /capture — foto unica (no streaming) con el flash prendido durante la
+// toma. Sirve para aislar si el problema es el loop continuo de /stream o
+// algo mas basico en esp_camera_fb_get(), y si la falta de luz influye.
+static esp_err_t capture_handler(httpd_req_t *req) {
+    digitalWrite(FLASH_GPIO_NUM, HIGH);
+    delay(150); // deja que el sensor reajuste exposicion con el flash prendido
+
+    uint32_t t0 = millis();
+    camera_fb_t *fb = esp_camera_fb_get();
+    uint32_t dt = millis() - t0;
+
+    digitalWrite(FLASH_GPIO_NUM, LOW);
+
+    Serial.printf("[capture] fb_get tardo %ums, fb=%s\n", dt, fb ? "OK" : "NULL");
+
+    if (!fb) {
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        return httpd_resp_send(req, "Fallo al capturar frame", HTTPD_RESP_USE_STRLEN);
+    }
+    if (fb->format != PIXFORMAT_JPEG) {
+        esp_camera_fb_return(fb);
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        return httpd_resp_send(req, "Formato de frame no es JPEG", HTTPD_RESP_USE_STRLEN);
+    }
+
+    httpd_resp_set_type(req, "image/jpeg");
+    esp_err_t res = httpd_resp_send(req, (const char *)fb->buf, fb->len);
+    esp_camera_fb_return(fb);
+    return res;
+}
+
+// GET /status — contadores de diagnostico en texto plano, para investigar
+// fallas intermitentes de /stream sin necesidad de abrir el monitor serial
+// (que resetea esta placa al abrirse, ver comentario junto a los diag_*).
+static esp_err_t status_handler(httpd_req_t *req) {
+    char buf[256];
+    int len = snprintf(buf, sizeof(buf),
+        "stream_attempts=%u\n"
+        "stream_fb_fail=%u\n"
+        "stream_frames_sent=%u\n"
+        "last_fb_get_ms=%u\n"
+        "max_fb_get_ms=%u\n"
+        "uptime_ms=%lu\n",
+        diag_stream_attempts, diag_stream_fb_fail, diag_stream_frames_sent,
+        diag_last_fb_get_ms, diag_max_fb_get_ms, millis());
+    httpd_resp_set_type(req, "text/plain");
+    return httpd_resp_send(req, buf, len);
 }
 
 // GET /control?steer=<0-180>&throttle=<-255..255>
@@ -142,9 +246,27 @@ static void start_camera_server() {
         .user_ctx = nullptr,
     };
 
-    if (httpd_start(&index_httpd, &index_config) == ESP_OK) {
+    httpd_uri_t capture_uri = {
+        .uri = "/capture",
+        .method = HTTP_GET,
+        .handler = capture_handler,
+        .user_ctx = nullptr,
+    };
+
+    httpd_uri_t status_uri = {
+        .uri = "/status",
+        .method = HTTP_GET,
+        .handler = status_handler,
+        .user_ctx = nullptr,
+    };
+
+    esp_err_t index_start_res = httpd_start(&index_httpd, &index_config);
+    Serial.printf("[http] index_httpd (puerto %d) httpd_start: 0x%x\n", index_config.server_port, index_start_res);
+    if (index_start_res == ESP_OK) {
         httpd_register_uri_handler(index_httpd, &index_uri);
         httpd_register_uri_handler(index_httpd, &control_uri);
+        httpd_register_uri_handler(index_httpd, &capture_uri);
+        httpd_register_uri_handler(index_httpd, &status_uri);
     }
 
     httpd_config_t stream_config = HTTPD_DEFAULT_CONFIG();
@@ -158,8 +280,11 @@ static void start_camera_server() {
         .user_ctx = nullptr,
     };
 
-    if (httpd_start(&stream_httpd, &stream_config) == ESP_OK) {
-        httpd_register_uri_handler(stream_httpd, &stream_uri);
+    esp_err_t stream_start_res = httpd_start(&stream_httpd, &stream_config);
+    Serial.printf("[http] stream_httpd (puerto %d) httpd_start: 0x%x\n", stream_config.server_port, stream_start_res);
+    if (stream_start_res == ESP_OK) {
+        esp_err_t reg_res = httpd_register_uri_handler(stream_httpd, &stream_uri);
+        Serial.printf("[http] registro de /stream: 0x%x\n", reg_res);
     }
 }
 
@@ -245,6 +370,9 @@ void setup() {
         Serial.println("No se pudo iniciar la camara, deteniendo.");
         return;
     }
+
+    pinMode(FLASH_GPIO_NUM, OUTPUT);
+    digitalWrite(FLASH_GPIO_NUM, LOW);
 
     drive_init();
     drive_set_steering(SERVO_CENTER_DEG);

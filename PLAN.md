@@ -24,11 +24,13 @@
   - Validado manualmente desde el navegador del celular: valores dentro de rango se aplican tal cual, fuera de rango se recortan (ej. `steer=999` → `180`), y falta un parámetro responde 400 con mensaje claro.
   - Watchdog implementado (detiene el motor si no llega un `/control` nuevo en 500ms) — no probado aún con motor real conectado.
   - Pendiente cuando haya hardware: confirmar sentido de giro del motor (IN1/IN2), centrar el servo físicamente (puede no coincidir con 90° según el brazo), y verificar que el watchdog sí corta la corriente al motor.
-- **Fase 3 — App Android v0**: adelantada mientras llega el hardware de Fase 2.
+- **Fase 3 — App Android v0**: completa, video incluido. Adelantada mientras llega el hardware de Fase 2.
   - Proyecto Kotlin + Jetpack Compose en `android-app/`, compilable por CLI con `./gradlew` (Gradle 9.7.1, AGP 9.4.0 — Android Studio ya no necesita el plugin `kotlin-android` por separado desde AGP 9).
-  - **Funcionando y confirmado**: conexión a la red del carro, layout horizontal (video arriba al centro, palancas analógicas de Dirección/Velocidad a los lados con resorte al centro), envío de `/control` cada 150ms (confirmado llegando al firmware por log serial), watchdog de seguridad.
-  - **Sin confirmar al cierre de esta sesión**: el video en el `WebView`. Se vio funcionando en la primerísima prueba (antes de tocar nada de redes), pero durante la depuración de un bug posterior no se pudo re-confirmar porque el ESP32 dejó de responder tras una sesión muy larga (ver `docs/notas-tecnicas.md`, secciones 4 y 5). El código quedó en la versión más simple (`WebView` normal sin trucos), que es la que sí funcionó la primera vez.
-  - **Primer paso de la próxima sesión**: con el ESP32 descansado, confirmar visualmente que el video se ve en la app.
+  - **Funcionando y confirmado end-to-end**: conexión a la red del carro, rediseño visual "cabina de auto" (volante, palanca de velocidad, velocímetro HUD con testigo de reversa), envío de `/control` cada 150ms, watchdog de seguridad, **y el video en vivo mostrándose correctamente en la app** (confirmado visualmente, con imagen en movimiento).
+  - **El video tuvo una investigación larga** (`docs/notas-tecnicas.md` secciones 6 a 6.4) con varias causas encontradas y corregidas en el camino:
+    1. Un bug real de firmware: el servidor de streaming solo atendía un cliente a la vez y una conexión muerta sin cerrar bloqueaba a cualquier cliente nuevo para siempre — arreglado con un timeout de socket (sección 6.2).
+    2. La causa final de "no se ve la imagen en el celular": un bug de CSS en el HTML que sirve el firmware — el `<img>` del stream quedaba con `clientHeight: 0` (tamaño renderizado cero) en el `WebView`/Chrome de Android, aunque la imagen estaba perfectamente decodificada. Arreglado usando `position:fixed` en vez de depender del tamaño intrínseco de la imagen (sección 6.4). No era un problema de Android, del celular, ni de la app — estaba en el HTML servido por el ESP32.
+  - Endpoints de diagnóstico agregados al firmware (quedan permanentes, son útiles): `GET /capture` (foto única con flash, sin streaming) y `GET /status` (contadores de diagnóstico del streaming en texto plano).
   - Bug de conectividad corregido: `NET_CAPABILITY_INTERNET` NO sirve para detectar "esta es la red sin internet del carro" — Android la marca en casi cualquier WiFi por defecto. La app bindea a cualquier WiFi activa, ya que no tiene otro uso.
 
 ## Pendiente de tu lado
@@ -104,7 +106,8 @@ Ya tienes: chasis 4WD, servo MG996R, motor DC, ESP32-CAM, adaptador CH340, celul
 - Prueba end-to-end: manejar el carro viendo la imagen en vivo.
 
 **Fase 4 — Pulido y seguridad**
-- Indicador de conexión/latencia en la app.
+- Indicador de conexión/latencia en la app (tablero de cabina).
+- Indicador visual de ángulo de dirección en el tablero (redundante con la palanca, estético).
 - Pantalla de calibración del servo (ajustar centro/límites sin reflashear).
 - Manejo de reconexión automática.
 
