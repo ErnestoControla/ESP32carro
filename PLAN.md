@@ -69,6 +69,8 @@ Celular Android:
 
 **Por qué AP y no WiFi de casa/estacionamiento**: como no hay WiFi en el lugar de uso, el ESP32 debe ser el punto de acceso. El celular se conecta directo a él (rango típico 20-50m en exterior abierto, menos con obstáculos).
 
+**Diagrama visual de cableado** (fuente de banco/batería + buck converter + L298N + servo + motor + ESP32-CAM, con mapa de pines y secuencia de encendido): `docs/cableado-puente-h.html` — abrir directo en cualquier navegador.
+
 ## 2. Riesgos técnicos a tener en cuenta (importante)
 
 - **Pines libres limitados**: el ESP32-CAM (AI-Thinker) usa casi todos los GPIO para la cámara. Los libres reales son **2, 4, 12, 13, 14, 15** (corrección: GPIO16 NO está libre en este módulo — está conectado a la PSRAM externa, confirmado por los build flags del board `esp32cam`; usarlo como GPIO corrompería la PSRAM). El **GPIO12** es un pin de "strapping": si algo lo fuerza a HIGH durante el arranque, el ESP32 puede no bootear — hay que evitar conectarle algo que lo jale alto al encender, así que se dejó sin usar. Asignación actual (ver `firmware/src/drive.h`): GPIO13 = servo, GPIO14/15 = dirección motor (L298N IN1/IN2), GPIO2 = PWM velocidad (L298N ENA).

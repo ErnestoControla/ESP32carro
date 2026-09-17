@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Puente H y ESP32-CAM — cableado</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f2ede1;
+    --surface: #fbf8f1;
+    --surface-2: #efe8d8;
+    --ink: #23201a;
+    --muted: #6f6656;
+    --line: #cdc4ae;
+    --rail-vms: #b8382f;
+    --rail-vms-soft: #b8382f1f;
+    --rail-5v: #a07018;
+    --rail-5v-soft: #a070181f;
+    --rail-gnd: #55503f;
+    --rail-sig: #146b63;
+    --rail-sig-soft: #146b631a;
+    --warn-bg: #f5e6c6;
+    --warn-border: #a07018;
+    --shadow: 0 1px 2px rgba(35,32,26,.06), 0 8px 24px -12px rgba(35,32,26,.18);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #1a1712;
+      --surface: #221d16;
+      --surface-2: #2b2519;
+      --ink: #ece3d2;
+      --muted: #a89a80;
+      --line: #453e2e;
+      --rail-vms: #e26a60;
+      --rail-vms-soft: #e26a6026;
+      --rail-5v: #e0ab52;
+      --rail-5v-soft: #e0ab5226;
+      --rail-gnd: #b7ab90;
+      --rail-sig: #57cabf;
+      --rail-sig-soft: #57cabf22;
+      --warn-bg: #3a2c15;
+      --warn-border: #e0ab52;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 12px 28px -14px rgba(0,0,0,.6);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #1a1712;
+    --surface: #221d16;
+    --surface-2: #2b2519;
+    --ink: #ece3d2;
+    --muted: #a89a80;
+    --line: #453e2e;
+    --rail-vms: #e26a60;
+    --rail-vms-soft: #e26a6026;
+    --rail-5v: #e0ab52;
+    --rail-5v-soft: #e0ab5226;
+    --rail-gnd: #b7ab90;
+    --rail-sig: #57cabf;
+    --rail-sig-soft: #57cabf22;
+    --warn-bg: #3a2c15;
+    --warn-border: #e0ab52;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 12px 28px -14px rgba(0,0,0,.6);
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body { margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+    line-height: 1.5;
+  }
+
+  .page {
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 40px 24px 64px;
+  }
+
+  .eyebrow {
+    font-family: "IBM Plex Sans Condensed", "IBM Plex Sans", sans-serif;
+    font-weight: 600;
+    font-size: 12px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--rail-sig);
+  }
+
+  h1 {
+    font-family: "IBM Plex Sans Condensed", "IBM Plex Sans", sans-serif;
+    font-weight: 700;
+    font-size: clamp(28px, 4vw, 38px);
+    margin: 4px 0 10px;
+    text-wrap: balance;
+  }
+
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 18px;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 28px;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 20px;
+  }
+  .meta b { color: var(--ink); font-weight: 600; }
+
+  .sheet {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    box-shadow: var(--shadow);
+    padding: 28px 24px 20px;
+  }
+
+  figure { margin: 0; }
+
+  .diagram-scroll {
+    overflow-x: auto;
+  }
+
+  svg.wiring {
+    display: block;
+    width: 100%;
+    max-width: 1000px;
+    height: auto;
+    color: var(--ink);
+    margin: 0 auto;
+  }
+
+  figcaption {
+    font-size: 13px;
+    color: var(--muted);
+    margin-top: 12px;
+    max-width: 68ch;
+  }
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px 28px;
+    margin-top: 22px;
+    padding-top: 18px;
+    border-top: 1px dashed var(--line);
+    font-size: 13px;
+  }
+  .legend-item { display: flex; align-items: center; gap: 8px; }
+  .swatch { width: 22px; height: 3px; border-radius: 2px; flex: none; }
+  .swatch.dashed {
+    background: none;
+    border-top: 2px dashed var(--rail-sig);
+    height: 0;
+  }
+  .legend-item b { font-weight: 600; }
+  .legend-item span { color: var(--muted); }
+
+  .refs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 28px;
+    margin-top: 32px;
+  }
+  @media (max-width: 720px) {
+    .refs { grid-template-columns: 1fr; }
+  }
+
+  .card-title {
+    font-family: "IBM Plex Sans Condensed", sans-serif;
+    font-weight: 600;
+    font-size: 15px;
+    margin: 0 0 12px;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .card-title .n {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  table.pins {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  table.pins th {
+    text-align: left;
+    font-family: "IBM Plex Sans Condensed", sans-serif;
+    font-weight: 600;
+    font-size: 11px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 0 10px 8px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  table.pins td {
+    padding: 7px 10px 7px 0;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+  table.pins tr:last-child td { border-bottom: none; }
+  table.pins td.origin {
+    font-family: "IBM Plex Mono", monospace;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    color: var(--ink);
+  }
+  table.pins td.dest { color: var(--muted); }
+  table.pins td.dest b { color: var(--ink); font-weight: 500; }
+
+  ol.steps {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    counter-reset: step;
+    font-size: 13.5px;
+  }
+  ol.steps li {
+    counter-increment: step;
+    display: grid;
+    grid-template-columns: 22px 1fr;
+    gap: 10px;
+    padding: 7px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  ol.steps li:last-child { border-bottom: none; }
+  ol.steps li::before {
+    content: counter(step);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    color: var(--surface);
+    background: var(--rail-sig);
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+  }
+  ol.steps b { font-weight: 600; }
+  ol.steps code {
+    font-family: "IBM Plex Mono", monospace;
+    background: var(--surface-2);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 12px;
+  }
+
+  .warning {
+    margin-top: 28px;
+    background: var(--warn-bg);
+    border: 1px solid var(--warn-border);
+    border-left: 5px solid var(--warn-border);
+    border-radius: 10px;
+    padding: 16px 18px;
+  }
+  .warning h2 {
+    font-family: "IBM Plex Sans Condensed", sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    margin: 0 0 8px;
+    color: var(--ink);
+  }
+  .warning ul {
+    margin: 0;
+    padding-left: 18px;
+    font-size: 13.5px;
+  }
+  .warning li { margin-bottom: 4px; }
+  .warning li:last-child { margin-bottom: 0; }
+</style>
+</head>
+<body>
+
+<div class="page">
+  <div class="eyebrow">Referencia de cableado &middot; prueba en protoboard</div>
+  <h1>Puente H y ESP32-CAM</h1>
+  <div class="meta">
+    <span>Proyecto: <b>ESP32 Carro</b></span>
+    <span>Rev: <b>A</b></span>
+    <span>Fecha: <b>2026-09-16</b></span>
+    <span>Fuente: <b>firmware/src/drive.h</b></span>
+  </div>
+
+  <div class="sheet">
+    <figure>
+      <div class="diagram-scroll">
+        <svg class="wiring" viewBox="0 0 1000 720" role="img" aria-label="Diagrama de cableado: la fuente de banco alimenta en paralelo el convertidor buck y el puente L298N; el buck entrega 5V regulados al ESP32-CAM y al servo; el ESP32-CAM manda las señales GPIO14, GPIO15 y GPIO2 al L298N y GPIO13 al servo; el L298N mueve el motor DC; todos los componentes comparten una única línea de GND en la parte inferior.">
+          <defs>
+            <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 Z" class="arrowhead" />
+            </marker>
+          </defs>
+
+          <style>
+            .box { fill: var(--surface-2); stroke: var(--line); stroke-width: 1.5; }
+            .title { font-family: "IBM Plex Sans Condensed", sans-serif; font-weight: 600; font-size: 14px; fill: var(--ink); }
+            .sub { font-family: "IBM Plex Sans", sans-serif; font-size: 10.5px; fill: var(--muted); }
+            .pin { font-family: "IBM Plex Mono", monospace; font-size: 10.5px; }
+            .pin-vms { fill: var(--rail-vms); }
+            .pin-5v { fill: var(--rail-5v); }
+            .pin-gnd { fill: var(--rail-gnd); }
+            .pin-sig { fill: var(--rail-sig); }
+            .wire-vms { stroke: var(--rail-vms); stroke-width: 2.5; fill: none; }
+            .wire-5v { stroke: var(--rail-5v); stroke-width: 2.5; fill: none; }
+            .wire-gnd { stroke: var(--rail-gnd); stroke-width: 2.5; fill: none; }
+            .wire-sig { stroke: var(--rail-sig); stroke-width: 1.8; fill: none; }
+            .dot-vms { fill: var(--rail-vms); }
+            .dot-5v { fill: var(--rail-5v); }
+            .dot-gnd { fill: var(--rail-gnd); }
+            .dot-sig { fill: var(--rail-sig); }
+            .arrowhead { fill: var(--rail-sig); }
+            .note { font-family: "IBM Plex Sans", sans-serif; font-size: 10.5px; fill: var(--muted); font-style: italic; }
+            .gndlabel { font-family: "IBM Plex Sans Condensed", sans-serif; font-size: 11px; font-weight: 600; letter-spacing: .06em; fill: var(--rail-gnd); }
+          </style>
+
+          <!-- ===== GND bus (bottom) ===== -->
+          <line x1="20" y1="660" x2="980" y2="660" class="wire-gnd" />
+          <g class="dot-gnd">
+            <circle cx="30" cy="660" r="3.2" />
+            <circle cx="100" cy="660" r="3.2" />
+            <circle cx="550" cy="660" r="3.2" />
+            <circle cx="590" cy="660" r="3.2" />
+            <circle cx="730" cy="660" r="3.2" />
+          </g>
+          <!-- ground tick symbols -->
+          <g class="wire-gnd">
+            <line x1="180" y1="660" x2="180" y2="670" />
+            <line x1="173" y1="670" x2="187" y2="670" />
+            <line x1="176" y1="674" x2="184" y2="674" />
+            <line x1="179" y1="678" x2="181" y2="678" />
+            <line x1="500" y1="660" x2="500" y2="670" />
+            <line x1="493" y1="670" x2="507" y2="670" />
+            <line x1="496" y1="674" x2="504" y2="674" />
+            <line x1="499" y1="678" x2="501" y2="678" />
+            <line x1="820" y1="660" x2="820" y2="670" />
+            <line x1="813" y1="670" x2="827" y2="670" />
+            <line x1="816" y1="674" x2="824" y2="674" />
+            <line x1="819" y1="678" x2="821" y2="678" />
+          </g>
+          <text x="500" y="700" text-anchor="middle" class="gndlabel">GND COMÚN — un solo nodo para toda la protoboard</text>
+
+          <!-- ===== VMS bus (red, top) ===== -->
+          <line x1="170" y1="110" x2="820" y2="110" class="wire-vms" />
+          <line x1="420" y1="80" x2="420" y2="110" class="wire-vms" />
+          <circle cx="420" cy="110" r="3.2" class="dot-vms" />
+          <line x1="170" y1="110" x2="170" y2="150" class="wire-vms" />
+          <line x1="820" y1="110" x2="820" y2="150" class="wire-vms" />
+
+          <!-- ===== 5V trunk (amber) ===== -->
+          <line x1="230" y1="214" x2="230" y2="500" class="wire-5v" />
+          <circle cx="230" cy="300" r="3.2" class="dot-5v" />
+          <line x1="230" y1="300" x2="420" y2="300" class="wire-5v" />
+          <line x1="420" y1="300" x2="420" y2="320" class="wire-5v" />
+
+          <!-- ===== GND drops ===== -->
+          <line x1="590" y1="80" x2="590" y2="660" class="wire-gnd" />
+          <line x1="100" y1="214" x2="30" y2="214" class="wire-gnd" />
+          <line x1="30" y1="214" x2="30" y2="660" class="wire-gnd" />
+          <line x1="100" y1="590" x2="100" y2="660" class="wire-gnd" />
+          <line x1="550" y1="430" x2="550" y2="660" class="wire-gnd" />
+          <line x1="730" y1="280" x2="730" y2="660" class="wire-gnd" />
+
+          <!-- ===== Signal lines (teal, ESP32 -> L298N) ===== -->
+          <polyline points="570,346 635,346 635,210 694,210" class="wire-sig" marker-end="url(#arrow)" />
+          <polyline points="570,370 655,370 655,235 694,235" class="wire-sig" marker-end="url(#arrow)" />
+          <polyline points="570,394 675,394 675,260 694,260" class="wire-sig" marker-end="url(#arrow)" />
+          <!-- ESP32 -> Servo signal -->
+          <polyline points="370,394 320,394 320,540 286,540" class="wire-sig" marker-end="url(#arrow)" />
+
+          <!-- ===== L298N outputs -> Motor ===== -->
+          <line x1="850" y1="280" x2="850" y2="500" class="wire-vms" />
+          <line x1="930" y1="280" x2="930" y2="500" class="wire-vms" />
+
+          <!-- ===== Boxes ===== -->
+          <!-- Fuente de banco -->
+          <rect x="340" y="20" width="280" height="60" rx="10" class="box" />
+          <text x="480" y="45" text-anchor="middle" class="title">FUENTE DE BANCO</text>
+          <text x="480" y="62" text-anchor="middle" class="sub">ajustada a V motor (6–12V) · límite de corriente bajo</text>
+          <circle cx="420" cy="80" r="3.2" class="dot-vms" />
+          <circle cx="590" cy="80" r="3.2" class="dot-gnd" />
+          <text x="420" y="98" text-anchor="middle" class="pin pin-vms">VMS</text>
+          <text x="590" y="98" text-anchor="middle" class="pin pin-gnd">GND</text>
+
+          <!-- Buck converter -->
+          <rect x="60" y="150" width="220" height="64" rx="10" class="box" />
+          <text x="170" y="176" text-anchor="middle" class="title">BUCK CONVERTER</text>
+          <text x="170" y="193" text-anchor="middle" class="sub">step-down, min. 3A</text>
+          <circle cx="170" cy="150" r="3.2" class="dot-vms" />
+          <circle cx="100" cy="214" r="3.2" class="dot-gnd" />
+          <circle cx="230" cy="214" r="3.2" class="dot-5v" />
+          <text x="255" y="230" text-anchor="end" class="pin pin-5v">OUT 5.00V</text>
+          <text x="245" y="245" text-anchor="end" class="note">medir con multímetro antes</text>
+          <text x="245" y="257" text-anchor="end" class="note">de conectar el ESP32-CAM</text>
+
+          <!-- L298N -->
+          <rect x="700" y="150" width="240" height="130" rx="10" class="box" />
+          <text x="820" y="176" text-anchor="middle" class="title">L298N — PUENTE H</text>
+          <text x="820" y="193" text-anchor="middle" class="sub">jumper 5V-enable puesto</text>
+          <circle cx="820" cy="150" r="3.2" class="dot-vms" />
+          <text x="820" y="145" text-anchor="middle" class="pin pin-vms">VMS</text>
+          <circle cx="694" cy="210" r="3.2" class="dot-sig" />
+          <text x="706" y="207" class="pin pin-sig">IN1</text>
+          <circle cx="694" cy="235" r="3.2" class="dot-sig" />
+          <text x="706" y="232" class="pin pin-sig">IN2</text>
+          <circle cx="694" cy="260" r="3.2" class="dot-sig" />
+          <text x="706" y="257" class="pin pin-sig">ENA</text>
+          <circle cx="730" cy="280" r="3.2" class="dot-gnd" />
+          <text x="730" y="298" text-anchor="middle" class="pin pin-gnd">GND</text>
+          <circle cx="850" cy="280" r="3.2" class="dot-vms" />
+          <text x="850" y="298" text-anchor="middle" class="pin pin-vms">OUT1</text>
+          <circle cx="930" cy="280" r="3.2" class="dot-vms" />
+          <text x="930" y="298" text-anchor="middle" class="pin pin-vms">OUT2</text>
+
+          <!-- ESP32-CAM (hub) -->
+          <rect x="370" y="320" width="200" height="110" rx="10" class="box" style="stroke-width:2" />
+          <text x="470" y="352" text-anchor="middle" class="title">ESP32-CAM</text>
+          <text x="470" y="369" text-anchor="middle" class="sub">firmware/src/drive.h</text>
+          <circle cx="420" cy="320" r="3.2" class="dot-5v" />
+          <text x="420" y="315" text-anchor="middle" class="pin pin-5v">5V</text>
+          <circle cx="550" cy="430" r="3.2" class="dot-gnd" />
+          <text x="550" y="448" text-anchor="middle" class="pin pin-gnd">GND</text>
+          <circle cx="570" cy="346" r="3.2" class="dot-sig" />
+          <text x="562" y="342" text-anchor="end" class="pin pin-sig">GPIO14</text>
+          <circle cx="570" cy="370" r="3.2" class="dot-sig" />
+          <text x="562" y="366" text-anchor="end" class="pin pin-sig">GPIO15</text>
+          <circle cx="570" cy="394" r="3.2" class="dot-sig" />
+          <text x="562" y="390" text-anchor="end" class="pin pin-sig">GPIO2</text>
+          <circle cx="370" cy="394" r="3.2" class="dot-sig" />
+          <text x="378" y="390" class="pin pin-sig">GPIO13</text>
+
+          <!-- Servo -->
+          <rect x="60" y="500" width="220" height="90" rx="10" class="box" />
+          <text x="170" y="527" text-anchor="middle" class="title">SERVO MG996R</text>
+          <text x="170" y="544" text-anchor="middle" class="sub">dirección</text>
+          <circle cx="230" cy="500" r="3.2" class="dot-5v" />
+          <text x="230" y="495" text-anchor="middle" class="pin pin-5v">V+</text>
+          <circle cx="100" cy="590" r="3.2" class="dot-gnd" />
+          <text x="100" y="605" text-anchor="middle" class="pin pin-gnd">GND</text>
+          <circle cx="286" cy="540" r="3.2" class="dot-sig" />
+          <text x="240" y="565" text-anchor="middle" class="pin pin-sig">SEÑAL</text>
+          <!-- capacitor symbol on 5V trunk -->
+          <line x1="216" y1="466" x2="244" y2="466" class="wire-5v" />
+          <line x1="220" y1="474" x2="240" y2="474" class="wire-5v" />
+          <text x="252" y="470" class="note">470–1000µF cerca del servo</text>
+
+          <!-- Motor -->
+          <rect x="800" y="500" width="180" height="70" rx="10" class="box" />
+          <text x="890" y="530" text-anchor="middle" class="title">MOTOR DC</text>
+          <text x="890" y="547" text-anchor="middle" class="sub">polaridad no importa aún</text>
+          <circle cx="850" cy="500" r="3.2" class="dot-vms" />
+          <circle cx="930" cy="500" r="3.2" class="dot-vms" />
+        </svg>
+      </div>
+      <figcaption>
+        Una fuente alimenta en paralelo el <b style="color:var(--rail-vms)">riel del motor</b> (rojo, 6–12V) y el
+        <em>buck converter</em>, que entrega el <b style="color:var(--rail-5v)">riel de 5V</b> (ámbar) al ESP32-CAM y al servo.
+        El ESP32-CAM manda las <b style="color:var(--rail-sig)">señales GPIO</b> (verde azulado) al L298N y al servo.
+        Todo comparte una sola línea de <b>GND</b> abajo.
+      </figcaption>
+    </figure>
+
+    <div class="legend">
+      <div class="legend-item"><span class="swatch" style="background:var(--rail-vms)"></span><b>Rojo</b><span>— riel motor, 6–12V (VMS)</span></div>
+      <div class="legend-item"><span class="swatch" style="background:var(--rail-5v)"></span><b>Ámbar</b><span>— riel 5V regulado</span></div>
+      <div class="legend-item"><span class="swatch" style="background:var(--rail-gnd)"></span><b>Gris</b><span>— GND común</span></div>
+      <div class="legend-item"><span class="swatch" style="background:var(--rail-sig)"></span><b>Verde azulado →</b><span>— señal GPIO (dirección de la flecha)</span></div>
+    </div>
+
+    <div class="refs">
+      <div>
+        <p class="card-title">Mapa de pines <span class="n">drive.h</span></p>
+        <table class="pins">
+          <thead><tr><th>Origen</th><th>Destino</th></tr></thead>
+          <tbody>
+            <tr><td class="origin">GPIO14</td><td class="dest">L298N · <b>IN1</b></td></tr>
+            <tr><td class="origin">GPIO15</td><td class="dest">L298N · <b>IN2</b></td></tr>
+            <tr><td class="origin">GPIO2</td><td class="dest">L298N · <b>ENA</b> (PWM)</td></tr>
+            <tr><td class="origin">GPIO13</td><td class="dest">Servo · <b>señal</b></td></tr>
+            <tr><td class="origin">Buck 5V</td><td class="dest">ESP32-CAM · <b>5V</b> y Servo · <b>V+</b></td></tr>
+            <tr><td class="origin">GND común</td><td class="dest">fuente, buck, L298N, ESP32-CAM, servo</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <p class="card-title">Secuencia de encendido <span class="n">9 pasos</span></p>
+        <ol class="steps">
+          <li>Todo apagado. Armá el cableado completo antes de dar corriente.</li>
+          <li>L298N: VMS del motor al terminal <code>+12V</code>, jumper 5V-enable puesto.</li>
+          <li>Buck: entrada en paralelo con el L298N, salida ajustada a <b>5.00V exactos</b>.</li>
+          <li>ESP32-CAM: 5V del buck, GND al común.</li>
+          <li>Servo: V+ al riel 5V, señal a <code>GPIO13</code>, capacitor cerca.</li>
+          <li>Motor a <code>OUT1</code>/<code>OUT2</code> — la polaridad se ajusta después.</li>
+          <li>Continuidad: sin corto entre GND y los rieles de 5V / VMS.</li>
+          <li>Primer encendido con límite de corriente bajo (~300–500mA).</li>
+          <li>Subí el límite, probá <code>/control</code> y confirmá giro + watchdog.</li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="warning">
+      <h2>Antes de energizar</h2>
+      <ul>
+        <li>Medí la salida del buck con el multímetro — <b>5.00V exactos</b> — antes de conectar el ESP32-CAM. Un buck mal calibrado lo puede freír al toque.</li>
+        <li>El ESP32-CAM y el servo se alimentan <b>solo</b> desde el buck, nunca desde la salida de 5V del L298N.</li>
+        <li>Todas las GND tienen que estar unidas en un único nodo, o los niveles lógicos de los GPIO no van a funcionar.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
