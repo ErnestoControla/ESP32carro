@@ -25,8 +25,22 @@ static const int MOTOR_ENA_PIN = 2;
 // Canales LEDC: el driver esp32-camera usa el canal 0 internamente para el
 // XCLK de la camara (ver init_camera() en main.cpp), asi que evitamos ese
 // canal aqui para no pisarlo.
+//
+// IMPORTANTE: en el ESP32 original, cada PAR de canales comparte un mismo
+// timer de hardware (formula real del driver: timer = (canal/2) % 4). Los
+// canales 4 y 5 caen en el MISMO timer (timer 2) — si se configuran con
+// frecuencia/resolucion distintas (como aqui: servo 50Hz/16-bit vs motor
+// 5000Hz/8-bit), la segunda llamada a ledcSetup() pisa la configuracion de
+// la primera sin avisar. Resultado real observado: el canal del servo
+// terminaba corriendo a 5000Hz/8-bit, y como el codigo le seguia mandando
+// valores de duty calculados para 16-bit, se saturaban al maximo (255) y
+// el pin quedaba fijo en HIGH sin importar el angulo pedido (confirmado
+// con multimetro: 3.34V constante en GPIO13 para cualquier steer).
+// Fix: usar canales de PARES distintos para servo y motor. Canal 4 -> timer
+// 2, canal 6 -> timer 3 (no comparten). Se evitan tambien los canales 0/1
+// (timer 0, usado por la camara).
 static const int SERVO_LEDC_CHANNEL = 4;
-static const int MOTOR_LEDC_CHANNEL = 5;
+static const int MOTOR_LEDC_CHANNEL = 6;
 
 static const int SERVO_FREQ_HZ = 50;
 static const int SERVO_PWM_BITS = 16;

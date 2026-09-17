@@ -19,24 +19,30 @@
   - AP propio `ESP32CAR` (contraseña `carro1234`) sirviendo `http://192.168.4.1/` (página) y stream MJPEG en el puerto 81.
   - Tres bugs de hardware/software resueltos — ver detalle en `docs/notas-tecnicas.md`.
   - Resolución final: **QVGA (320x240)**, calidad JPEG 12, ~25 fps estables. Se prefirió sobre VGA porque el cuello de botella es el envío por WiFi, no la cámara, y para controlar el carro importa más la latencia que el detalle de imagen.
-- **Fase 2 — Firmware: control de motor y servo**: lógica implementada y validada por HTTP; **falta la prueba física** (sin fuente/driver/multímetro todavía).
+- **Fase 2 — Firmware: control de motor y servo**: ✅ **completa, validada end-to-end con hardware real, incluida batería.**
   - Endpoint `GET /control?steer=<0-180>&throttle=<-255..255>` en el puerto 80.
   - Validado manualmente desde el navegador del celular: valores dentro de rango se aplican tal cual, fuera de rango se recortan (ej. `steer=999` → `180`), y falta un parámetro responde 400 con mensaje claro.
-  - Watchdog implementado (detiene el motor si no llega un `/control` nuevo en 500ms) — no probado aún con motor real conectado.
-  - Pendiente cuando haya hardware: confirmar sentido de giro del motor (IN1/IN2), centrar el servo físicamente (puede no coincidir con 90° según el brazo), y verificar que el watchdog sí corta la corriente al motor.
-- **Fase 3 — App Android v0**: completa, video incluido. Adelantada mientras llega el hardware de Fase 2.
-  - Proyecto Kotlin + Jetpack Compose en `android-app/`, compilable por CLI con `./gradlew` (Gradle 9.7.1, AGP 9.4.0 — Android Studio ya no necesita el plugin `kotlin-android` por separado desde AGP 9).
-  - **Funcionando y confirmado end-to-end**: conexión a la red del carro, rediseño visual "cabina de auto" (volante, palanca de velocidad, velocímetro HUD con testigo de reversa), envío de `/control` cada 150ms, watchdog de seguridad, **y el video en vivo mostrándose correctamente en la app** (confirmado visualmente, con imagen en movimiento).
+  - **Bug real encontrado y corregido en la primera prueba con hardware**: el motor iba bien hacia adelante pero no hacía reversa ni dirección. Causa: en el ESP32, cada par de canales LEDC comparte un mismo timer de hardware (`timer = (canal/2) % 4`) — los canales usados para servo (4) y motor (5) caían en el mismo timer, y `ledcSetup()` del motor pisaba en silencio la configuración de frecuencia/resolución del servo. El servo quedaba corriendo a la frecuencia del motor (5000Hz/8-bit en vez de 50Hz/16-bit) y sus valores de duty (calculados para 16-bit) se saturaban al máximo, dejando el pin fijo en HIGH sin importar el ángulo pedido — confirmado con multímetro (3.34V constante en GPIO13 sin cambiar aunque se pidieran ángulos distintos). Fix: mover el motor al canal 6 (timer distinto) en `firmware/src/drive.h`. Detalle completo en `docs/notas-tecnicas.md` sección 7.
+  - **Después del fix, probado end-to-end y confirmado**: dirección (servo) y reversa del motor funcionando en protoboard (fuente de banco), y luego **con batería real** (LiPo, desconectado de la fuente de banco) — el vehículo se movió correctamente y **la comunicación WiFi/`/control` no se interrumpió durante el movimiento** (buena señal para el watchdog y para que el motor en marcha no meta ruido eléctrico que tumbe el WiFi).
+  - Watchdog implementado (detiene el motor si no llega un `/control` nuevo en 500ms). No se hizo todavía una prueba **deliberada** de cortar la conexión a propósito para verificar que el motor se detiene solo (lo que sí se confirmó es que *no* se interrumpe en uso normal, que es distinto).
+  - Pendiente: prueba de watchdog a propósito (alejar el celular o cerrar la app y confirmar que el motor para en ≤500ms), y **prueba de alcance en exteriores** (ver "Pendiente de tu lado").
+- **Fase 3 — App Android v0**: ✅ **completa**, video incluido, validada junto con el movimiento real del vehículo (Fase 2).
+  - Proyecto Kotlin + Jetpack Compose en `android-app/`, compilable por CLI con `./gradlew` (Gradle 9.7.1, AGP 9.3.0 — Android Studio ya no necesita el plugin `kotlin-android` por separado desde AGP 9).
+  - Estructura de archivos (hecha por el asistente de Android Studio siguiendo `android-app/agent.md`): `MainActivity.kt` (entry point), `network/CarNetwork.kt` (conexión WiFi + `/control`), `ui/CarScreen.kt` (layout de cabina), `ui/components/AnalogStick.kt`, `ui/components/SteeringWheel.kt` (volante rotable, reemplazó la palanca de dirección), `ui/components/Speedometer.kt` (velocímetro HUD).
+  - **Funcionando y confirmado end-to-end**: conexión a la red del carro, diseño visual "cabina de auto" (volante rotable para dirección, palanca vertical con auto-centrado para velocidad, velocímetro HUD 0-100% con testigo "R" de reversa), envío de `/control` cada 150ms, watchdog de seguridad, video en vivo mostrándose correctamente, y **manejo real del vehículo con la app** (video + controles + movimiento físico, todo junto, sin cortes).
+  - Watchdog de recarga del `WebView` cada 20s agregado como red de seguridad extra (por si el stream se cuelga en silencio como se vio en una sesión anterior) — no debería hacer falta en uso normal dado que el bug de fondo ya se identificó y arregló (ver abajo), pero se deja como salvaguarda barata.
   - **El video tuvo una investigación larga** (`docs/notas-tecnicas.md` secciones 6 a 6.4) con varias causas encontradas y corregidas en el camino:
     1. Un bug real de firmware: el servidor de streaming solo atendía un cliente a la vez y una conexión muerta sin cerrar bloqueaba a cualquier cliente nuevo para siempre — arreglado con un timeout de socket (sección 6.2).
     2. La causa final de "no se ve la imagen en el celular": un bug de CSS en el HTML que sirve el firmware — el `<img>` del stream quedaba con `clientHeight: 0` (tamaño renderizado cero) en el `WebView`/Chrome de Android, aunque la imagen estaba perfectamente decodificada. Arreglado usando `position:fixed` en vez de depender del tamaño intrínseco de la imagen (sección 6.4). No era un problema de Android, del celular, ni de la app — estaba en el HTML servido por el ESP32.
   - Endpoints de diagnóstico agregados al firmware (quedan permanentes, son útiles): `GET /capture` (foto única con flash, sin streaming) y `GET /status` (contadores de diagnóstico del streaming en texto plano).
   - Bug de conectividad corregido: `NET_CAPABILITY_INTERNET` NO sirve para detectar "esta es la red sin internet del carro" — Android la marca en casi cualquier WiFi por defecto. La app bindea a cualquier WiFi activa, ya que no tiene otro uso.
+  - Instrucciones completas para el asistente de Android Studio (contexto del proyecto, contrato de red, qué no tocar) en `android-app/agent.md` — está actualizado con el estado final de esta sesión, sirve como punto de partida para la próxima.
 
 ## Pendiente de tu lado
-1. Pedir los componentes de la lista de compras cerrada (sección 3).
-2. Al iniciar la próxima sesión: confirmar que el video se vea en la app (con el ESP32 ya descansado).
-3. Cuando lleguen los componentes: avisar para hacer la prueba física de Fase 2 (wiring según `firmware/src/drive.h`).
+1. **Prueba de alcance en exteriores** — es el próximo paso concreto. Sin obstáculos, medir hasta qué distancia se mantiene la conexión WiFi/control antes de que se corte, y qué tan gradual o abrupto es el corte (¿el video se degrada primero, o se corta todo de golpe?). Anotar la distancia aproximada para tenerla como referencia real (el rango típico de un AP ESP32 es 20-50m en exterior abierto, pero varía mucho según la antena del módulo).
+2. Mientras estás en eso, aprovechá para probar el watchdog a propósito: alejate hasta que se corte la señal y confirmá que el motor se detiene solo (no debería seguir andando "a ciegas").
+3. Confirmar el centrado físico del servo (¿90° del firmware coincide con las ruedas derechas del chasis?, si no, ajustar el brazo del servo o calibrar — ver Fase 4).
+4. Cuando quieras seguir con pulido (Fase 4): indicador de conexión/latencia y de ángulo de dirección en el tablero de la app ya están anotados como pendientes futuros, no urgentes.
 
 ---
 
@@ -56,8 +62,9 @@ ESP32-CAM:
 
 Celular Android:
   - Se conecta a la red WiFi "ESP32CAR"
-  - App Kotlin: WebView/vista con el stream (http://192.168.4.1:81/stream)
-  - Controles (sliders o joystick) → HTTP requests a 192.168.4.1:80/control
+  - App Kotlin/Compose, diseño "cabina de auto": WebView con el stream,
+    volante rotable (dirección) + palanca vertical auto-centrada (velocidad)
+    + velocímetro HUD → HTTP requests a 192.168.4.1:80/control cada 150ms
 ```
 
 **Por qué AP y no WiFi de casa/estacionamiento**: como no hay WiFi en el lugar de uso, el ESP32 debe ser el punto de acceso. El celular se conecta directo a él (rango típico 20-50m en exterior abierto, menos con obstáculos).
@@ -72,6 +79,8 @@ Celular Android:
 - **Watchdog de seguridad**: si el celular sale de rango o se cae la conexión, el motor debe detenerse solo. El firmware debe parar el motor si no recibe un comando nuevo en, por ejemplo, 500 ms.
 
 ## 3. Lista de compras (cerrada, lista para pedir)
+
+**Ítems 1, 2, 3 y 7 ya conseguidos y probados con hardware real** (L298N, batería LiPo, buck converter, fuente de banco) — ver Fase 2 en la sección Progreso.
 
 | # | Ítem | Recomendación | Cant. | Motivo |
 |---|---|---|---|---|
@@ -94,12 +103,12 @@ Ya tienes: chasis 4WD, servo MG996R, motor DC, ESP32-CAM, adaptador CH340, celul
 
 **Fase 1 — Firmware: solo cámara** ✅ (ver sección Progreso)
 
-**Fase 2 — Firmware: control de motor y servo**
+**Fase 2 — Firmware: control de motor y servo** ✅ (ver sección Progreso)
 - Agregar PWM para servo (centrado/min/max) y control de dirección+velocidad del motor vía L298N.
 - Exponer endpoints HTTP simples (`/control?steer=90&throttle=120`) y probarlos manualmente desde el navegador o `curl` antes de tocar la app.
 - Implementar el watchdog de seguridad (parar motor sin comandos recientes).
 
-**Fase 3 — App Android v0 (MVP funcional)**
+**Fase 3 — App Android v0 (MVP funcional)** ✅ (ver sección Progreso)
 - Vista con el stream (WebView apuntando al MJPEG).
 - Dos sliders (dirección y velocidad) o joystick simple enviando HTTP requests.
 - Manejo de conexión a red WiFi sin internet (bindProcessToNetwork).
